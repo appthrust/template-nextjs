@@ -1,65 +1,168 @@
-import Image from "next/image";
+import { createMessage } from "./actions";
+import { loadDemoMessages } from "@/lib/db";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const database = await loadDemoMessages();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="min-h-screen bg-slate-50 px-6 py-8 text-slate-950">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+        <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-emerald-700">
+              AppThrust sample
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-normal">
+              Managed PostgreSQL messages
+            </h1>
+          </div>
+          <StatusBadge status={database.status} />
+        </header>
+
+        <section className="grid gap-4 md:grid-cols-3">
+          <Metric label="Connection" value={databaseStatusLabel(database.status)} />
+          <Metric label="Database" value={database.databaseName ?? "unavailable"} />
+          <Metric label="Messages" value={String(database.messages.length)} />
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <h2 className="text-base font-medium">Recent messages</h2>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {database.messages.length > 0 ? (
+                database.messages.map((message) => (
+                  <article key={message.id} className="px-5 py-4">
+                    <p className="text-sm text-slate-950">{message.body}</p>
+                    <p className="mt-1 font-mono text-xs text-slate-500">
+                      #{message.id} · {message.createdAt}
+                    </p>
+                  </article>
+                ))
+              ) : (
+                <div className="px-5 py-10 text-sm text-slate-500">
+                  {emptyStateMessage(database.status)}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <aside className="space-y-4">
+            <form
+              action={createMessage}
+              className="rounded-lg border border-slate-200 bg-white p-4"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              <label
+                htmlFor="body"
+                className="text-sm font-medium text-slate-900"
+              >
+                New message
+              </label>
+              <textarea
+                id="body"
+                name="body"
+                rows={4}
+                maxLength={280}
+                placeholder="Write a database-backed message"
+                className="mt-2 w-full resize-none rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+              />
+              <button
+                type="submit"
+                disabled={database.status !== "ready"}
+                className="mt-3 w-full rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Save message
+              </button>
+            </form>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <h2 className="text-sm font-medium">Runtime</h2>
+              <dl className="mt-3 space-y-2 text-sm">
+                <InfoRow
+                  label="DATABASE_URL"
+                  value={database.databaseUrlPresent ? "provided" : "missing"}
+                />
+                <InfoRow label="Host" value={database.host ?? "unavailable"} />
+                <InfoRow
+                  label="Migration"
+                  value={
+                    database.status === "migration-pending"
+                      ? "pending"
+                      : database.status === "ready"
+                        ? "applied"
+                        : "unknown"
+                  }
+                />
+              </dl>
+            </div>
+          </aside>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const ready = status === "ready";
+
+  return (
+    <span
+      className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-sm font-medium ${
+        ready
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "border-amber-200 bg-amber-50 text-amber-800"
+      }`}
+    >
+      {databaseStatusLabel(status)}
+    </span>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="text-xs font-medium uppercase text-slate-500">{label}</p>
+      <p className="mt-2 truncate text-lg font-semibold">{value}</p>
     </div>
   );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="min-w-0 truncate font-mono text-xs text-slate-900">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function databaseStatusLabel(status: string) {
+  switch (status) {
+    case "ready":
+      return "Connected";
+    case "migration-pending":
+      return "Migration pending";
+    case "missing-url":
+      return "Not connected";
+    default:
+      return "Unavailable";
+  }
+}
+
+function emptyStateMessage(status: string) {
+  switch (status) {
+    case "migration-pending":
+      return "The database is reachable, but the initial schema has not been applied yet.";
+    case "missing-url":
+      return "DATABASE_URL is not configured for this runtime.";
+    case "unavailable":
+      return "The database could not be reached from this runtime.";
+    default:
+      return "No messages have been saved yet.";
+  }
 }
