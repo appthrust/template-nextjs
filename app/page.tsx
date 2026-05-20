@@ -5,6 +5,10 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const database = await loadDemoMessages();
+  const runtimeVersion =
+    process.env.VERSION?.trim() ||
+    process.env.APTH_COMPONENT_VERSION?.trim() ||
+    "unset";
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8 text-slate-950">
@@ -100,6 +104,13 @@ export default async function Home() {
             </div>
           </aside>
         </section>
+
+        <footer className="border-t border-slate-200 pt-4 text-xs text-slate-500">
+          <span>Runtime version</span>
+          <span className="ml-2 font-mono text-slate-700">
+            VERSION={runtimeVersion}
+          </span>
+        </footer>
       </div>
     </main>
   );
