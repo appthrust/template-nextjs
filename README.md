@@ -19,3 +19,7 @@ Run locally:
 npm install
 npm run dev
 ```
+
+## Platform health probes
+
+The platform probes `GET /healthz` for startup and liveness, and `GET /` for readiness. Keep `/healthz` static and database-independent so startup and liveness do not depend on database availability.
