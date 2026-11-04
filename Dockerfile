@@ -65,10 +65,11 @@ FROM scratch AS artifact
 # Document the launch environment; image-volume mounts do not apply image ENV.
 ENV PORT=3000 HOSTNAME=0.0.0.0 NODE_ENV=production
 
-# The Managed Runtime runs node server.js in /workspace/app as UID/GID 1000.
-COPY --from=builder --chown=1000:1000 /app/.next/standalone/ /workspace/app/
-COPY --from=builder --chown=1000:1000 /app/.next/static /workspace/app/.next/static
-COPY --from=builder --chown=1000:1000 /app/public /workspace/app/public
-COPY --from=builder --chown=1000:1000 /app/out/ /workspace/app/
+# The image root is the code tree: the Managed Runtime mounts it at
+# /workspace/app and runs node server.js there as UID/GID 1000.
+COPY --from=builder --chown=1000:1000 /app/.next/standalone/ /
+COPY --from=builder --chown=1000:1000 /app/.next/static /.next/static
+COPY --from=builder --chown=1000:1000 /app/public /public
+COPY --from=builder --chown=1000:1000 /app/out/ /
 
 EXPOSE 3000
