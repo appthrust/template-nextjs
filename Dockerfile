@@ -2,9 +2,8 @@
 # Stage 1: Dependencies Installation Stage
 # ============================================
 
-# IMPORTANT: Node.js Version Maintenance
-# This Dockerfile uses Node.js 24.13.0-slim, which was the latest LTS version at the time of writing.
-# To ensure security and compatibility, regularly update the NODE_VERSION ARG to the latest LTS version.
+# Node.js is used only to build the code artifact.
+# AppThrust Managed Runtime nodejs-24 owns execution and runtime updates.
 ARG NODE_VERSION=24.13.0-slim
 
 FROM node:${NODE_VERSION} AS dependencies
@@ -54,37 +53,22 @@ ENV NODE_ENV=production
 # Build Next.js application
 RUN npm run build
 
+# Prepare the mount point for the Managed Runtime's writable cache volume.
+RUN mkdir -p /app/out/.next/cache
+
 # ============================================
-# Stage 3: Run Next.js application
+# Stage 3: Package the code-only artifact for AppThrust Managed Runtime
 # ============================================
 
-FROM node:${NODE_VERSION} AS runner
+FROM scratch AS artifact
 
-# Set working directory
-WORKDIR /app
+# Document the launch environment; image-volume mounts do not apply image ENV.
+ENV PORT=3000 HOSTNAME=0.0.0.0 NODE_ENV=production
 
-# Set production environment variables
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+# The Managed Runtime runs node server.js in /workspace/app as UID/GID 1000.
+COPY --from=builder --chown=1000:1000 /app/.next/standalone/ /workspace/app/
+COPY --from=builder --chown=1000:1000 /app/.next/static /workspace/app/.next/static
+COPY --from=builder --chown=1000:1000 /app/public /workspace/app/public
+COPY --from=builder --chown=1000:1000 /app/out/ /workspace/app/
 
-# Copy production assets
-COPY --from=builder --chown=node:node /app/public ./public
-
-# Set the correct permission for prerender cache
-RUN mkdir .next
-RUN chown node:node .next
-
-# Automatically leverage output traces to reduce image size
-# https://nextjs.org/docs/advanced-features/output-file-tracing
-COPY --from=builder --chown=node:node /app/.next/standalone ./
-COPY --from=builder --chown=node:node /app/.next/static ./.next/static
-
-# Switch to non-root user for security best practices
-USER node
-
-# Expose port 3000 to allow HTTP traffic
 EXPOSE 3000
-
-# Start Next.js standalone server
-CMD ["node", "server.js"]
