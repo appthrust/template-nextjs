@@ -6,6 +6,12 @@ This starter proves the AppThrust managed PostgreSQL path:
 - The initial schema is applied through `DatabaseChange`.
 - The Next.js app reads and writes `appthrust_demo_messages`.
 
+The Docker image is a code-only artifact run by the AppThrust Managed Runtime
+`nodejs-24`, which supplies Node.js and launches `node server.js` in
+`/workspace/app` as UID/GID 1000 with a writable `.next/cache` volume. It is not
+runnable standalone with `docker run`. Local development is unchanged: use
+`npm run dev`.
+
 The app does not run migrations on startup. For local development, apply
 `db/migrations/0001_init.sql` to your PostgreSQL database, then set:
 
