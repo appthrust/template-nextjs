@@ -29,3 +29,126 @@ npm run dev
 ## Platform health probes
 
 The platform probes `GET /healthz` for startup and liveness, and `GET /` for readiness. Keep `/healthz` static and database-independent so startup and liveness do not depend on database availability.
+
+## App roles (optional)
+
+App roles let a Project admin decide which groups and people may view, edit or
+manage each kind of item in this app. The template does not include them. Add
+them only to an app that needs them: the helper package comes from GitHub
+Packages, which requires a token to install even though the package is public.
+
+### 1. Install the helper
+
+Create `.npmrc` (it holds a variable reference; never commit a token):
+
+```ini
+@appthrust:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+Install with a token that has `read:packages`:
+
+```bash
+gh auth refresh --scopes read:packages   # once
+NODE_AUTH_TOKEN=$(gh auth token) npm install --save-exact @appthrust/app-access
+```
+
+From now on `npm ci` needs `NODE_AUTH_TOKEN` too. `npm run dev`, `lint` and
+`build` do not.
+
+### 2. Let the image build install it
+
+In `.github/workflows/deploy.yml`, uncomment the `secrets:` lines of the
+"Build and push Docker images" step. The `Dockerfile` already reads that build
+secret.
+
+### 3. Add the server code
+
+`lib/app-access.ts`:
+
+```ts
+import "server-only";
+
+import { headers } from "next/headers";
+import {
+  fromEnv,
+  type AppAccess,
+  type AppAccessClient,
+} from "@appthrust/app-access";
+
+let client: AppAccessClient | undefined;
+
+// One client per server process so requests share its caches. "PLATFORM" is
+// the environment prefix of a platform connection named "platform". Throws
+// when the connection is missing: a half-configured app fails closed.
+export function appAccess(): AppAccessClient {
+  client ??= fromEnv("PLATFORM", {
+    application: process.env.APP_ACCESS_APPLICATION?.trim() ?? "",
+  });
+  return client;
+}
+
+// Permissions of the signed-in user for the current request, for Server
+// Actions and Server Components.
+export async function currentAccess(): Promise<AppAccess> {
+  return appAccess().getAppAccess(await headers());
+}
+```
+
+Check a permission on the server before every protected read or write; hiding
+a button is not authorization. For example, to let only editors save messages
+in `app/actions.ts`:
+
+```ts
+import { currentAccess } from "@/lib/app-access";
+
+export async function createMessage(formData: FormData) {
+  // Throws Unauthenticated (not signed in), Forbidden (not permitted) or
+  // Unavailable (platform unreachable); nothing below runs.
+  (await currentAccess()).require("messages:write");
+  // ...save the message
+}
+```
+
+A Route Handler passes its `Request` and maps those errors to 401 / 403 / 503
+with `toResponse`:
+
+```ts
+import { toResponse } from "@appthrust/app-access";
+import { appAccess } from "@/lib/app-access";
+
+export async function GET(request: Request) {
+  try {
+    const access = await appAccess().getAppAccess(request);
+    access.require("messages:read");
+    return Response.json({ canWrite: access.has("messages:write") });
+  } catch (error) {
+    return toResponse(error);
+  }
+}
+```
+
+### 4. Turn it on in AppThrust
+
+1. In the Dashboard, open the Application's **Access** tab, define the item
+   types and roles, and assign roles to groups or people.
+2. Require sign-in on the published endpoint and add a platform connection to
+   the web component:
+
+   ```bash
+   apth publishes access set <project> <publish> --mode Authenticated
+   apth component-connections create <project> <web component> --destination-platform --name platform
+   ```
+
+3. Set `APP_ACCESS_APPLICATION` to the Application resource name:
+
+   ```bash
+   apth apps env set <application> APP_ACCESS_APPLICATION=<application>
+   ```
+
+Permission names such as `messages:write` are the ones the Access tab shows
+for each item type and level. Role changes reach the app within about a
+minute; the first activation can take up to five minutes for users who were
+already signed in. See the
+[`@appthrust/app-access` README](https://github.com/appthrust/platform/tree/main/dashboard/packages/app-access)
+for errors and caching.
