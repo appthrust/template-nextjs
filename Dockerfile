@@ -15,8 +15,9 @@ WORKDIR /app
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
 
 # Install project dependencies with frozen lockfile for reproducible builds.
-# @appthrust packages come from GitHub Packages, which needs a token even for
-# public packages. It is a build secret: it never enters an image layer.
+# The optional build secret node_auth_token is for apps that install packages
+# from GitHub Packages (see "App roles" in README.md). Without it this step is
+# unchanged; with it the token never enters an image layer.
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/usr/local/share/.cache/yarn \
     --mount=type=cache,target=/root/.local/share/pnpm/store \

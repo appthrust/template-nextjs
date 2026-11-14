@@ -57,10 +57,11 @@ jobs:
           annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Lets `npm ci` read @appthrust packages from GitHub Packages. Uses the
-          # `packages` permission above; the token is not stored in the image.
-          secrets: |
-            node_auth_token=${{ secrets.GITHUB_TOKEN }}
+          # Only for apps that install @appthrust packages from GitHub Packages
+          # (see "App roles" in README.md): uncomment to pass the workflow token
+          # to `npm ci` as a build secret. It is not stored in the image.
+          # secrets: |
+          #   node_auth_token=${{ secrets.GITHUB_TOKEN }}
           # appthrust.dev runtimes are linux/amd64. Adding linux/arm64 here builds
           # under QEMU emulation and multiplied build time (166s -> 39s measured on
           # a Next.js app after removing it). For an arm64 runtime, build natively
