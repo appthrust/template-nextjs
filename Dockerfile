@@ -14,10 +14,16 @@ WORKDIR /app
 # Copy package-related files first to leverage Docker's caching mechanism
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
 
-# Install project dependencies with frozen lockfile for reproducible builds
+# Install project dependencies with frozen lockfile for reproducible builds.
+# @appthrust packages come from GitHub Packages, which needs a token even for
+# public packages. It is a build secret: it never enters an image layer.
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/usr/local/share/.cache/yarn \
     --mount=type=cache,target=/root/.local/share/pnpm/store \
+    --mount=type=secret,id=node_auth_token \
+  if [ -f /run/secrets/node_auth_token ]; then \
+    export NODE_AUTH_TOKEN="$(cat /run/secrets/node_auth_token)"; \
+  fi; \
   if [ -f package-lock.json ]; then \
     npm ci --no-audit --no-fund; \
   elif [ -f yarn.lock ]; then \
