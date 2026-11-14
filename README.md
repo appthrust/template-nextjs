@@ -100,21 +100,33 @@ a button is not authorization. For example, to let only editors save messages
 in `app/actions.ts`:
 
 ```ts
-import { toResponse } from "@appthrust/app-access";
 import { currentAccess } from "@/lib/app-access";
 
 export async function createMessage(formData: FormData) {
-  try {
-    (await currentAccess()).require("messages:write");
-  } catch (error) {
-    // 401 not signed in, 403 not permitted, 503 platform unreachable.
-    return { ok: false as const, status: toResponse(error).status };
-  }
+  // Throws Unauthenticated (not signed in), Forbidden (not permitted) or
+  // Unavailable (platform unreachable); nothing below runs.
+  (await currentAccess()).require("messages:write");
   // ...save the message
 }
 ```
 
-A Route Handler passes its `Request` instead: `appAccess().getAppAccess(request)`.
+A Route Handler passes its `Request` and maps those errors to 401 / 403 / 503
+with `toResponse`:
+
+```ts
+import { toResponse } from "@appthrust/app-access";
+import { appAccess } from "@/lib/app-access";
+
+export async function GET(request: Request) {
+  try {
+    const access = await appAccess().getAppAccess(request);
+    access.require("messages:read");
+    return Response.json({ canWrite: access.has("messages:write") });
+  } catch (error) {
+    return toResponse(error);
+  }
+}
+```
 
 ### 4. Turn it on in AppThrust
 
