@@ -9,8 +9,7 @@ This starter proves the AppThrust managed PostgreSQL path:
 The Docker image is a code-only artifact run by the AppThrust Managed Runtime
 `nodejs-24`, which supplies Node.js and launches `node server.js` in
 `/workspace/app` as UID/GID 1000 with a writable `.next/cache` volume. It is not
-runnable standalone with `docker run`. Local development is unchanged: use
-`npm run dev`.
+runnable standalone with `docker run`. For local development, use `npm run dev`.
 
 The app does not run migrations on startup. For local development, apply
 `db/migrations/0001_init.sql` to your PostgreSQL database, then set:
@@ -26,14 +25,66 @@ npm install
 npm run dev
 ```
 
+Local development does not supply a signed-in person. To test protected features
+without Platform, use an isolated fixture that exercises the same exchange and
+signature checks. No identity fixture ships with this template.
+
 ## Platform health probes
 
-The platform probes `GET /healthz` for startup and liveness, and `GET /` for readiness. Keep `/healthz` static and database-independent so startup and liveness do not depend on database availability.
+For this template, startup, liveness and readiness probe `GET /healthz`. Keep its `ok` response independent of the database and sign-in. The AI development preview checks `/` separately; neither check proves authorization.
+
+## Signed-in person
+
+Platform authenticates; the app decides who may use it and what they may do.
+Passing a sign-in gateway means only “signed in.” A public publish supplies no
+verified person. Never infer one from guessed headers, cookies, client input or
+the claims in a forwarded IdP token.
+
+**Today:** On a `company` publish without external authorization, the gateway
+forwards `Authorization: Bearer …`. With a platform connection and app access
+model configured, use the server-side client's `getAppAccess` (setup below).
+It exchanges the bearer at `POST /api/v1/access/user-token`, verifies the
+Platform assertion and returns `subjectIssuer`, `subject` and permissions.
+On `group` and `private` publishes, external authorization strips both
+`Authorization` and `Cookie`; the app cannot identify the caller today. If a
+feature cannot get a verified person, leave it closed and report what is
+missing. Do not widen sharing, add a login screen or invent a fallback user.
+
+The published `@appthrust/app-access` 0.2.0 client is not a template dependency.
+Its `require` and `has` permission checks work today. The exchange already
+signs a `principal` (`u_…`), but `getAppAccess` does not expose it. Until it
+does, leave author-recording writes closed and report the missing helper
+support. Do not write a verifier, derive the key or trust unsigned JSON.
+
+Once the helper exposes it, use the signed `principal` as the only author key
+(`author_principal`). Snapshot the display name in `author_display_name` at write
+time. The assertion supplies no personal name today; when a name is absent,
+store NULL and show “Name unavailable.” Never key a person by name or email. Signed group grants
+contain group keys and permissions, not names. Group labels come from a
+separate directory that requires app declaration, admin consent and caller
+permission; it is not a source of personal names.
+
+Before each protected read or write, including inside a Server Action, verify
+the caller and enforce the app's permissions and row ownership rules. Deny
+before touching the database: 401 for missing or invalid credentials, 403 for
+a verified caller without the required permission, 503 if the exchange or
+assertion cannot be verified. Keep protected data out of public static files.
+
+**Planned, not available in this template:** `requireUser(request)` is the single
+server entry point for `company`, `group` and `private`. It will require `app:use`,
+assigned respectively to all signed-in people, selected groups, or the owner and
+invitees. The standard model will be active at creation; only additional business
+permissions will be optional. The app's `access:manage` holders will manage
+assignments, with changes taking effect in about a minute without rebuilding.
+The planned result includes an optional `displayName` and `user.can(permission)`
+for additional checks. Neither default-deny middleware nor the AI-build
+authorization check ships today.
 
 ## App roles (optional)
 
 App roles let a Project admin decide which groups and people may view, edit or
-manage each kind of item in this app. The template does not include them. Add
+manage each kind of item in this app. Roles grant permissions; they do not
+supply a person's display name. The template does not include them. Add
 them only to an app that needs them: the helper package comes from GitHub
 Packages, which requires a token to install even though the package is public.
 
@@ -132,8 +183,9 @@ export async function GET(request: Request) {
 
 1. In the Dashboard, open the Application's **Access** tab, define the item
    types and roles, and assign roles to groups or people.
-2. Require sign-in on the published endpoint and add a platform connection to
-   the web component:
+2. For an endpoint intended for `company` sharing, require sign-in and add a
+   platform connection to the web component. Do not switch a `group` or
+   `private` publish to this mode:
 
    ```bash
    apth publishes access set <project> <publish> --mode Authenticated
