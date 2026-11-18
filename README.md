@@ -9,8 +9,7 @@ This starter proves the AppThrust managed PostgreSQL path:
 The Docker image is a code-only artifact run by the AppThrust Managed Runtime
 `nodejs-24`, which supplies Node.js and launches `node server.js` in
 `/workspace/app` as UID/GID 1000 with a writable `.next/cache` volume. It is not
-runnable standalone with `docker run`. Local development is unchanged: use
-`npm run dev`.
+runnable standalone with `docker run`. For local development, use `npm run dev`.
 
 The app does not run migrations on startup. For local development, apply
 `db/migrations/0001_init.sql` to your PostgreSQL database, then set:
@@ -26,41 +25,60 @@ npm install
 npm run dev
 ```
 
+Local development does not supply a signed-in person. To test protected features
+without Platform, use an isolated fixture that exercises the same exchange and
+signature checks. No identity fixture ships with this template.
+
 ## Platform health probes
 
-The platform probes `GET /healthz` for startup and liveness, and `GET /` for readiness. Keep `/healthz` static and database-independent so startup and liveness do not depend on database availability.
+For this template, startup, liveness and readiness probe `GET /healthz`. Keep its `ok` response independent of the database and sign-in. The AI development preview checks `/` separately; neither check proves authorization.
 
 ## Signed-in person
 
-A publish's share scope decides **who may open the published URL**. That does
-not tell the app **who made a request**. Even a verified identity does not decide
-**what that person may do**: check app permissions before each protected operation.
+Platform authenticates; the app decides who may use it and what they may do.
+Passing a sign-in gateway means only “signed in.” A public publish supplies no
+verified person. Never infer one from guessed headers, cookies, client input or
+the claims in a forwarded IdP token.
 
-| Share scope | What reaches the backend today | Server helper today |
-| --- | --- | --- |
-| `public` | No sign-in required; no verified person. | None |
-| `company` | After sign-in (no external authorization), the edge forwards only `Authorization: Bearer <IdP access token>`. No name or email headers; no guaranteed app audience. | `getAppAccess` with a platform connection and a stack access model; verified subject key, no display name |
-| `group` | After external authorization allows the request, the edge removes `Authorization`. No verified person. | None |
-| `private` | After external authorization allows the request, the edge removes `Authorization`. No verified person. | None |
+**Today:** On a `company` publish without external authorization, the gateway
+forwards `Authorization: Bearer …`. With a platform connection and app access
+model configured, use the server-side client's `getAppAccess` (setup below).
+It exchanges the bearer at `POST /api/v1/access/user-token`, verifies the
+Platform assertion and returns `subjectIssuer`, `subject` and permissions.
+On `group` and `private` publishes, external authorization strips both
+`Authorization` and `Cookie`; the app cannot identify the caller today. If a
+feature cannot get a verified person, leave it closed and report what is
+missing. Do not widen sharing, add a login screen or invent a fallback user.
 
-**Supported today:** On a `company` publish with a platform connection and an
-access model on the stack, call `getAppAccess(await headers())` on the server
-as shown below. The `@appthrust/app-access` client exchanges the forwarded
-bearer token with Platform. Use the verified `(subjectIssuer, subject)` pair
-as the author key; the helper does not return a display name. A neutral label
-such as “Signed in” is accurate when the person is verified but unnamed.
-On `public`, `group` or `private`, or if the exchange is not configured, stop
-and report the missing prerequisite for any feature that needs a verified
-person. Do not guess a name or change the share scope to make the feature work.
+The published `@appthrust/app-access` 0.2.0 client is not a template dependency.
+Its `require` and `has` permission checks work today. The exchange already
+signs a `principal` (`u_…`), but `getAppAccess` does not expose it. Until it
+does, leave author-recording writes closed and report the missing helper
+support. Do not write a verifier, derive the key or trust unsigned JSON.
 
-**Upcoming, not yet released or enabled:** The server-side helper
-`getPrincipal(await headers())` from `@appthrust/app-access` will verify a
-Platform-signed assertion in the reserved `X-AppThrust-Principal` header and
-return `{ subjectIssuer, subject, displayName? }`. Until Platform reports
-principal delivery available for that publish, the helper will fail with
-`Unavailable`. It will verify the assertion against the `APPTHRUST_PRINCIPAL_*`
-settings supplied by Platform. Never set these reserved names in the app or
-read the header as a substitute for verification.
+Once the helper exposes it, use the signed `principal` as the only author key
+(`author_principal`). Snapshot the display name in `author_display_name` at write
+time. The assertion supplies no personal name today; when a name is absent,
+store NULL and show “Name unavailable.” Never key a person by name or email. Signed group grants
+contain group keys and permissions, not names. Group labels come from a
+separate directory that requires app declaration, admin consent and caller
+permission; it is not a source of personal names.
+
+Before each protected read or write, including inside a Server Action, verify
+the caller and enforce the app's permissions and row ownership rules. Deny
+before touching the database: 401 for missing or invalid credentials, 403 for
+a verified caller without the required permission, 503 if the exchange or
+assertion cannot be verified. Keep protected data out of public static files.
+
+**Planned, not available in this template:** `requireUser(request)` is the single
+server entry point for `company`, `group` and `private`. It will require `app:use`,
+assigned respectively to all signed-in people, selected groups, or the owner and
+invitees. The standard model will be active at creation; only additional business
+permissions will be optional. The app's `access:manage` holders will manage
+assignments, with changes taking effect in about a minute without rebuilding.
+The planned result includes an optional `displayName` and `user.can(permission)`
+for additional checks. Neither default-deny middleware nor the AI-build
+authorization check ships today.
 
 ## App roles (optional)
 

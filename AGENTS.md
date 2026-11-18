@@ -6,17 +6,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Signed-in person
 
-Access to the published URL does not tell the app who the person is. The table lists possible paths, not proof of configuration. If Platform supplies a build context, use only the helper it identifies for this publish.
+Platform authenticates. Passing a sign-in gateway means “signed in,” not “allowed to use this app.” The app decides who may enter and what they may read or change. A public publish supplies no verified person.
 
-| Share scope | What reaches the backend today | Server helper today |
-| --- | --- | --- |
-| `public` | No sign-in required; no verified person. | None |
-| `company` | After sign-in (no external authorization), the edge forwards only `Authorization: Bearer <IdP access token>`. No name or email headers; no guaranteed app audience. | `getAppAccess` with a platform connection and a stack access model; verified subject key, no display name |
-| `group` | After external authorization allows the request, the edge removes `Authorization`. No verified person. | None |
-| `private` | After external authorization allows the request, the edge removes `Authorization`. No verified person. | None |
-
-- Never infer identity from headers such as `x-forwarded-*`, `x-auth-request-*` or `x-appthrust-*`, cookies you did not set, form/JSON/query input, or a token decoded without verification.
-- If a feature needs a verified person and this publish cannot provide one, stop and report the missing prerequisite. Do not widen sharing or invent a login screen, demo user or name picker.
-- Resolve identity on the server for reads and writes. Re-verify the caller in each protected Server Action before accessing the database; do not accept the author from the client.
-- Persist the author as the verified `(subjectIssuer, subject)` pair. Store any display label separately, never as a key. A missing name does not mean the person is signed out.
-- Verify identity behavior through the real authenticated path, never by sending identity headers you set yourself.
+- On a `company` publish without external authorization, the gateway forwards a bearer. Use the server-side `@appthrust/app-access` client's `getAppAccess` with a configured platform connection. It exchanges the bearer and verifies the result. Never infer identity from guessed headers, cookies, client input or decoded IdP claims; do not write a token verifier.
+- On today's `group` and `private` publishes, external authorization removes `Authorization` and `Cookie` before the request reaches the app. No verified person is available.
+- Check identity, permission and any row ownership before each protected read or write, including inside each Server Action. If identity is missing or unverifiable, deny access. Do not widen sharing, invent a login or substitute a demo user.
+- `getAppAccess` returns `subjectIssuer` and `subject`, not the signed `principal` (`u_…`) or a display name. If a feature must record an author, report the missing helper support and leave the write closed. Do not derive the key yourself.
+- The author record needs only `author_principal` and a snapshot of the display name at write time (`author_display_name`, NULL if absent). Render a neutral label for a missing name; never use a name or email as a key. Build context indicates readiness, not a choice of identity schemes.
+- **Planned, not available:** `requireUser(request)` will check `app:use` for `company`, `group` and `private` alike. Only the assignment differs. Do not import it or assume routes are protected by default.
+- Test through the real exchange or an independent fixture that exercises the same exchange and verification. Use self-asserted headers only to test rejection, never to simulate a signed-in user.
