@@ -30,10 +30,43 @@ npm run dev
 
 The platform probes `GET /healthz` for startup and liveness, and `GET /` for readiness. Keep `/healthz` static and database-independent so startup and liveness do not depend on database availability.
 
+## Signed-in person
+
+A publish's share scope decides **who may open the published URL**. That does
+not tell the app **who made a request**. Even a verified identity does not decide
+**what that person may do**: check app permissions before each protected operation.
+
+| Share scope | What reaches the backend today | Server helper today |
+| --- | --- | --- |
+| `public` | No sign-in required; no verified person. | None |
+| `company` | After sign-in (no external authorization), the edge forwards only `Authorization: Bearer <IdP access token>`. No name or email headers; no guaranteed app audience. | `getAppAccess` with a platform connection and a stack access model; verified subject key, no display name |
+| `group` | After external authorization allows the request, the edge removes `Authorization`. No verified person. | None |
+| `private` | After external authorization allows the request, the edge removes `Authorization`. No verified person. | None |
+
+**Supported today:** On a `company` publish with a platform connection and an
+access model on the stack, call `getAppAccess(await headers())` on the server
+as shown below. The `@appthrust/app-access` client exchanges the forwarded
+bearer token with Platform. Use the verified `(subjectIssuer, subject)` pair
+as the author key; the helper does not return a display name. A neutral label
+such as “Signed in” is accurate when the person is verified but unnamed.
+On `public`, `group` or `private`, or if the exchange is not configured, stop
+and report the missing prerequisite for any feature that needs a verified
+person. Do not guess a name or change the share scope to make the feature work.
+
+**Upcoming, not yet released or enabled:** The server-side helper
+`getPrincipal(await headers())` from `@appthrust/app-access` will verify a
+Platform-signed assertion in the reserved `X-AppThrust-Principal` header and
+return `{ subjectIssuer, subject, displayName? }`. Until Platform reports
+principal delivery available for that publish, the helper will fail with
+`Unavailable`. It will verify the assertion against the `APPTHRUST_PRINCIPAL_*`
+settings supplied by Platform. Never set these reserved names in the app or
+read the header as a substitute for verification.
+
 ## App roles (optional)
 
 App roles let a Project admin decide which groups and people may view, edit or
-manage each kind of item in this app. The template does not include them. Add
+manage each kind of item in this app. Roles grant permissions; they do not
+supply a person's display name. The template does not include them. Add
 them only to an app that needs them: the helper package comes from GitHub
 Packages, which requires a token to install even though the package is public.
 
@@ -132,8 +165,9 @@ export async function GET(request: Request) {
 
 1. In the Dashboard, open the Application's **Access** tab, define the item
    types and roles, and assign roles to groups or people.
-2. Require sign-in on the published endpoint and add a platform connection to
-   the web component:
+2. For an endpoint intended for `company` sharing, require sign-in and add a
+   platform connection to the web component. Do not switch a `group` or
+   `private` publish to this mode:
 
    ```bash
    apth publishes access set <project> <publish> --mode Authenticated
