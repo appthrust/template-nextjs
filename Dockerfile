@@ -15,13 +15,13 @@ WORKDIR /app
 COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* .npmrc* ./
 
 # Install project dependencies with frozen lockfile for reproducible builds.
-# The optional build secret node_auth_token is for apps that install packages
-# from GitHub Packages (see "App roles" in README.md). Without it this step is
-# unchanged; with it the token never enters an image layer.
+# node_auth_token supplies GitHub Packages read access only during installation.
+# The committed .npmrc contains a variable reference, never a credential;
+# the secret's value never enters an image layer.
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/usr/local/share/.cache/yarn \
     --mount=type=cache,target=/root/.local/share/pnpm/store \
-    --mount=type=secret,id=node_auth_token \
+    --mount=type=secret,id=node_auth_token,required=true \
   if [ -f /run/secrets/node_auth_token ]; then \
     export NODE_AUTH_TOKEN="$(cat /run/secrets/node_auth_token)"; \
   fi; \

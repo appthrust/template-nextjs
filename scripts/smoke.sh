@@ -13,6 +13,7 @@ npm run build
 
 port="${SMOKE_PORT:-3000}"
 server_log=$(mktemp)
+response_headers=$(mktemp)
 server_pid=""
 cleanup() {
   status=$?
@@ -24,7 +25,7 @@ cleanup() {
   if (( status != 0 )); then
     cat "$server_log" >&2
   fi
-  rm -f "$server_log"
+  rm -f "$server_log" "$response_headers"
   exit "$status"
 }
 trap cleanup EXIT
@@ -62,13 +63,19 @@ if [[ "$health_status" != 200 ]]; then
 fi
 
 # Do not follow redirects: an unauthenticated app may redirect or return 401.
-root_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+root_status=$(curl --silent --show-error --output /dev/null --dump-header "$response_headers" --write-out '%{http_code}' \
   --connect-timeout 2 --max-time 10 "http://127.0.0.1:$port/")
 echo "GET / -> $root_status"
 case "$root_status" in
-  [1-4][0-9][0-9]) ;;
+  200|3[0-9][0-9]|401|403) ;;
+  503)
+    if ! grep -Eiq '^x-appthrust-access:[[:space:]]*unavailable[[:space:]]*$' "$response_headers"; then
+      echo "GET / returned 503 without the deliberate app-access unavailable marker." >&2
+      exit 1
+    fi
+    ;;
   *)
-    echo "Expected GET / to return a non-5xx HTTP status." >&2
+    echo "Expected GET / to return 200/3xx/401/403, or a marked app-access 503." >&2
     exit 1
     ;;
 esac

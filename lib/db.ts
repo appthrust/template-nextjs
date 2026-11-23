@@ -10,6 +10,8 @@ export interface DemoMessage {
   id: number;
   body: string;
   createdAt: string;
+  authorPrincipal: string | null;
+  authorDisplayName: string | null;
 }
 
 export interface DemoDatabaseState {
@@ -66,8 +68,10 @@ export async function loadDemoMessages(): Promise<DemoDatabaseState> {
       id: number;
       body: string;
       created_at: string;
+      author_principal: string | null;
+      author_display_name: string | null;
     }>(`
-      SELECT id, body, created_at::text
+      SELECT id, body, created_at::text, author_principal, author_display_name
       FROM appthrust_demo_messages
       ORDER BY id DESC
       LIMIT 8
@@ -82,6 +86,8 @@ export async function loadDemoMessages(): Promise<DemoDatabaseState> {
         id: row.id,
         body: row.body,
         createdAt: row.created_at,
+        authorPrincipal: row.author_principal,
+        authorDisplayName: row.author_display_name,
       })),
     };
   } catch (error) {
@@ -95,15 +101,19 @@ export async function loadDemoMessages(): Promise<DemoDatabaseState> {
   }
 }
 
-export async function insertDemoMessage(body: string) {
+export async function insertDemoMessage(
+  body: string,
+  authorPrincipal: string,
+  authorDisplayName: string | null,
+) {
   const client = getPool();
   if (!client) {
     return;
   }
 
   await client.query(
-    "INSERT INTO appthrust_demo_messages (body) VALUES ($1)",
-    [body],
+    "INSERT INTO appthrust_demo_messages (body, author_principal, author_display_name) VALUES ($1, $2, $3)",
+    [body, authorPrincipal, authorDisplayName],
   );
 }
 
@@ -112,7 +122,7 @@ function databaseTableMissing(error: unknown) {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    error.code === "42P01"
+    (error.code === "42P01" || error.code === "42703")
   );
 }
 
