@@ -28,6 +28,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.13.0"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+        env:
+          # Used only when an app opts into GitHub Packages via .npmrc.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build and smoke without platform configuration
+        run: npm run test:smoke
+        timeout-minutes: 10
+
+      - name: Report failed pre-image checks
+        if: failure()
+        run: |
+          echo "::error::Pre-image checks failed; no new image will be built or pushed."
+          echo "Pre-image checks failed. The previous image remains unchanged; inspect the failed check above." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -82,9 +110,11 @@ jobs:
           \`\`\`
 
           </details>"
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMENT_BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo "body<<EOF"
+            echo "$COMMENT_BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Add comment to commit
         uses: peter-evans/commit-comment@v3
