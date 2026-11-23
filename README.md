@@ -1,230 +1,240 @@
 # AppThrust Next.js PostgreSQL template
 
-This starter proves the AppThrust managed PostgreSQL path:
+A signed-in starter with default-deny access and managed PostgreSQL. Platform
+authenticates the person; this app authorizes with signed facts from
+`@appthrust/app-access` **0.3.1**. No hand-written token verifier or fallback user.
 
-- AppThrust injects `DATABASE_URL` through `ComponentConnection`.
-- The initial schema is applied through `DatabaseChange`.
-- The Next.js app reads and writes `appthrust_demo_messages`.
+The code-only Docker image runs on AppThrust Managed Runtime `nodejs-24`,
+which launches `node server.js` in `/workspace/app` as UID/GID 1000 with a writable
+`.next/cache` volume. It is not a standalone `docker run` image.
 
-The Docker image is a code-only artifact run by the AppThrust Managed Runtime
-`nodejs-24`, which supplies Node.js and launches `node server.js` in
-`/workspace/app` as UID/GID 1000 with a writable `.next/cache` volume. It is not
-runnable standalone with `docker run`. For local development, use `npm run dev`.
+## Install and run locally
 
-The app does not run migrations on startup. For local development, apply
-`db/migrations/0001_init.sql` to your PostgreSQL database, then set:
+Use Node.js 24, npm and a GitHub token with `read:packages`:
 
 ```bash
-DATABASE_URL=postgresql://app:password@localhost:5432/app
-```
-
-Run locally:
-
-```bash
-npm install
+gh auth refresh --scopes read:packages   # once, if the token lacks this scope
+NODE_AUTH_TOKEN=$(gh auth token) npm ci
 npm run dev
 ```
 
-Local development does not supply a signed-in person. To test protected features
-without Platform, use an isolated fixture that exercises the same exchange and
-signature checks. No identity fixture ships with this template.
+The committed `.npmrc` selects GitHub Packages and contains only
+`${NODE_AUTH_TOKEN}`, never a token. The token is needed for installation, not
+for `dev`, typechecking, tests or builds.
 
-## Platform health probes
+Without platform configuration, `/` deliberately renders a **503** page in
+Japanese and English, with `Cache-Control: no-store` and
+`x-appthrust-access: unavailable`. This is not a crash. `/healthz` remains 200.
+There is no fake identity or auto-login mode.
 
-For this template, startup, liveness and readiness probe `GET /healthz`. Keep its `ok` response independent of the database and sign-in. The AI development preview checks `/` separately; neither check proves authorization.
+To connect local development to a real platform, copy these four values from
+the web component's `platform` connection into an uncommitted `.env.local`:
 
-## CI checks
-
-Before building or pushing an image, `.github/workflows/deploy.yml` runs
-`npm run typecheck`, `npm test` (Node.js's built-in test runner), and
-`npm run test:smoke`. The smoke builds with `next build`, starts the standalone
-server, and requires `/healthz` to return 200 and `/` to return a non-5xx HTTP
-status (including 200, redirects, or 401). It unsets `PLATFORM_*`,
-`APP_ACCESS_*`, `APTH_*`, and `DATABASE_URL` for both build and startup; do not
-provide platform configuration through local `.env` files for this check.
-It uses port 3000 by default; set `SMOKE_PORT` to an unused port locally.
-Startup and requests are bounded, and the server is stopped on success or
-failure. A failed check fails the workflow, reports the failure in the job
-summary, and prevents image publication, leaving the previous image unchanged.
-
-
-## Signed-in person
-
-Platform authenticates; the app decides who may use it and what they may do.
-Passing a sign-in gateway means only “signed in.” A public publish supplies no
-verified person. Never infer one from guessed headers, cookies, client input or
-the claims in a forwarded IdP token.
-
-**Today:** On a `company` publish without external authorization, the gateway
-forwards `Authorization: Bearer …`. With a platform connection and app access
-model configured, use the server-side client's `getAppAccess` (setup below).
-It exchanges the bearer at `POST /api/v1/access/user-token`, verifies the
-Platform assertion and returns `subjectIssuer`, `subject` and permissions.
-On `group` and `private` publishes, external authorization strips both
-`Authorization` and `Cookie`; the app cannot identify the caller today. If a
-feature cannot get a verified person, leave it closed and report what is
-missing. Do not widen sharing, add a login screen or invent a fallback user.
-
-The optional `@appthrust/app-access` client is not a template dependency.
-Its `require` and `has` permission checks work today. The exchange already
-signs a `principal` (`u_…`), but `getAppAccess` does not expose it. Until it
-does, leave author-recording writes closed and report the missing helper
-support. Do not write a verifier, derive the key or trust unsigned JSON.
-
-Once the helper exposes it, use the signed `principal` as the only author key
-(`author_principal`). Snapshot the display name in `author_display_name` at write
-time. The assertion supplies no personal name today; when a name is absent,
-store NULL and show “Name unavailable.” Never key a person by name or email. Signed group grants
-contain group keys and permissions, not names. Group labels come from a
-separate directory that requires app declaration, admin consent and caller
-permission; it is not a source of personal names.
-
-Before each protected read or write, including inside a Server Action, verify
-the caller and enforce the app's permissions and row ownership rules. Deny
-before touching the database: 401 for missing or invalid credentials, 403 for
-a verified caller without the required permission, 503 if the exchange or
-assertion cannot be verified. Keep protected data out of public static files.
-
-**Planned, not available in this template:** `requireUser(request)` is the single
-server entry point for `company`, `group` and `private`. It will require `app:use`,
-assigned respectively to all signed-in people, selected groups, or the owner and
-invitees. The standard model will be active at creation; only additional business
-permissions will be optional. The app's `access:manage` holders will manage
-assignments, with changes taking effect in about a minute without rebuilding.
-The planned result includes an optional `displayName` and `user.can(permission)`
-for additional checks. Neither default-deny middleware nor the AI-build
-authorization check ships today.
-
-## App roles (optional)
-
-App roles let a Project admin decide which groups and people may view, edit or
-manage each kind of item in this app. Roles grant permissions; they do not
-supply a person's display name. The template does not include them. Add
-them only to an app that needs them: the helper package comes from GitHub
-Packages, which requires a token to install even though the package is public.
-
-### 1. Install the helper
-
-Create `.npmrc` (it holds a variable reference; never commit a token):
-
-```ini
-@appthrust:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```dotenv
+PLATFORM_API_URL=https://your-platform-api
+PLATFORM_ACCESS_ISSUER=https://your-platform-access-issuer
+PLATFORM_PROJECT_ID=your-project-resource-id
+PLATFORM_APPLICATION=your-application-resource-name
 ```
 
-Use `@appthrust/app-access@^0.3.1`: 0.3.0 crashed on `await headers()` because Next.js's real headers adapter has an internal `headers` object.
+Use the actual generated values, not a display name or component name.
+Restart `npm run dev` after changing them: the SDK client (or configuration
+failure) is initialized once per process. These values are configuration,
+**not credentials**. Requests still need the real platform's signed-in gateway
+path forwarding the caller's bearer for this application; opening localhost
+directly with only these variables returns 401. Do not copy identity headers or
+cookies to simulate a person. Unit tests use isolated signed fixtures, not a
+development login.
 
-Install with a token that has `read:packages`:
+For local PostgreSQL, set `DATABASE_URL` and apply every migration in order:
 
 ```bash
-gh auth refresh --scopes read:packages   # once
-NODE_AUTH_TOKEN=$(gh auth token) npm install '@appthrust/app-access@^0.3.1'
+export DATABASE_URL='postgresql://app:password@localhost:5432/app'
+for migration in db/migrations/*.sql; do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+done
 ```
 
-From now on `npm ci` needs `NODE_AUTH_TOKEN` too. `npm run dev`, `lint` and
-`build` do not.
+Platform creates the initial schema from `db/migrations` through
+`DatabaseChange`; the app never runs DDL on startup. When upgrading an existing
+app, apply `0002_message_authors.sql` through the usual DatabaseChange flow
+before using the new message form. Seed/legacy rows have NULL author fields;
+no person is invented for them. New messages store a signed `author_principal`
+and a nullable `author_display_name` snapshot.
 
-Never mock `next/headers` with a plain `Headers` in tests; use Next.js's real
-`HeadersAdapter` or pass a real `Request` to the access helper.
-After adding app-access, replace the stub-route test in
-`__tests__/headers-adapter.test.mjs` with a real
-`getAppAccess(await headers())` call through the app's access helper.
+## Operator setup: two steps per application
 
-### 2. Let the image build install it
+The template includes the SDK, guard and access declaration, but the platform
+connection and accepted model must still be configured for each app.
+Start with an existing application and its web component. Use Bash with `apth`,
+`jq`, `curl` and Node.js installed. Find the resource IDs in the Dashboard.
 
-In `.github/workflows/deploy.yml`, uncomment the `secrets:` lines of the
-"Build and push Docker images" step. The `Dockerfile` already reads that build
-secret. The earlier CI dependency-install step already supplies `GITHUB_TOKEN`
-as `NODE_AUTH_TOKEN` for `.npmrc`; apps without the helper need no package token.
+```bash
+read -rp 'Platform API URL (https://...): ' API_URL
+API_URL="${API_URL%/}"
+read -rp 'Project resource ID: ' PROJECT
+read -rp 'Application resource name: ' APPLICATION
+read -rp 'Web component resource ID: ' WEB_COMPONENT
+PROFILE=template-setup
+apth login --profile "$PROFILE" --api-url "$API_URL" --project "$PROJECT"
+apth whoami --profile "$PROFILE"
+```
 
-### 3. Add the server code
+### 1. Create the platform connection
 
-`lib/app-access.ts`:
+```bash
+CONNECTION_ID=$(
+  apth component-connections create "$PROJECT" "$WEB_COMPONENT" \
+    --destination-platform --name platform --profile "$PROFILE" --json |
+    jq -er '.id'
+)
+apth component-connections get "$PROJECT" "$CONNECTION_ID" \
+  --profile "$PROFILE" --json | jq '{id, state, generatedEnvKeys}'
+```
+
+If the connection already exists, use its ID from
+`apth component-connections list "$PROJECT" --profile "$PROFILE" --json`
+instead of creating another. Re-run the `get` readback until `state` is
+**Ready** and `generatedEnvKeys` includes all four SDK inputs:
+`PLATFORM_API_URL`, `PLATFORM_ACCESS_ISSUER`, `PLATFORM_PROJECT_ID`,
+`PLATFORM_APPLICATION`. Do not manually set an `APP_ACCESS_APPLICATION`
+override. A half-configured app stays closed with 503.
+
+### 2. Declare and accept App roles
+
+`app-access.json` is the body for
+`PUT /api/v1/projects/<p>/applications/<app>/access/model`. It declares:
+
+| Permission | Role | Default assignment |
+| --- | --- | --- |
+| `app:use` | `app-user` | `Authenticated` (Everyone signed in) |
+| `access:manage` | `access-manager` | None; assign explicitly |
+
+Declaring requires `project.write`. Acceptance and current Dashboard binding
+administration require a **`project.manage` holder**. That caller's PUT accepts
+automatically; otherwise a manager must accept in the Dashboard. Merely
+declaring the model does not authorize anyone.
+
+The CLI has no application-access-model command yet. Use its saved login
+credential for this API request; do not print the token or use `set -x`:
+
+```bash
+CREDENTIALS="${APTH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/appthrust}/credentials.json"
+PLATFORM_TOKEN=$(jq -er --arg profile "$PROFILE" '.profiles[$profile].accessToken' "$CREDENTIALS")
+platform_api() {
+  printf 'Authorization: Bearer %s\n' "$PLATFORM_TOKEN" |
+    curl --fail-with-body --silent --show-error --header @- "$@"
+}
+ACCESS_URL="$API_URL/api/v1/projects/$PROJECT/applications/$APPLICATION/access"
+platform_api --request PUT --header 'Content-Type: application/json' \
+  --header "Idempotency-Key: $(node -p 'crypto.randomUUID()')" \
+  --data-binary @app-access.json "$ACCESS_URL/model" |
+  jq '{declared, pending, offeredDigest, acceptedDigest}'
+```
+
+In Dashboard: **app → Access → Roles → accept** as a `project.manage` holder
+if pending. Then **Who can do what → Everyone signed in → app-user**: verify
+the default binding (add it if missing), and explicitly assign
+`access-manager` only to the intended people/groups. This role is declared for
+app-side sharing controls; it does not replace today's `project.manage`
+requirement on the Platform management API.
+
+Read back after acceptance and reconciliation:
+
+```bash
+platform_api "$ACCESS_URL" |
+  jq '{declared, pending, bindings, snapshot}'
+# Required: declared=true, pending=false; app-user bound to Authenticated.
+# If pending, re-run this GET after reconciliation; do not treat the PUT as readiness.
+unset PLATFORM_TOKEN
+unset -f platform_api
+```
+
+Keep this single model when adding business permissions: add permissions and
+roles to `app-access.json`, PUT it again and accept the new model. Permission
+and role names are append-only. Check additional permissions with
+`await requireUser("messages:write")` or `user.can(...)`, never role labels.
+Role-binding changes normally take effect within about a minute without a
+rebuild; first activation can require signing in again.
+
+### Current share-scope limitation
+
+On **company** publishes, the gateway forwards `Authorization`. On today's
+**group/private** publishes, external authorization strips both `Authorization`
+and `Cookie` until the per-app edge cutover. Those requests receive a clear
+401 “not available yet” page: the app cannot see who you are yet.
+A public publish supplies no verified person either. Do not widen sharing,
+invent a login or use a fallback identity to work around this limitation.
+
+## Application code contract
+
+`lib/app-access.ts` is the single server entry point:
 
 ```ts
-import "server-only";
-
-import { headers } from "next/headers";
-import {
-  fromEnv,
-  type AppAccess,
-  type AppAccessClient,
-} from "@appthrust/app-access";
-
-let client: AppAccessClient | undefined;
-
-// One client per server process so requests share its caches. "PLATFORM" is
-// the environment prefix of a platform connection named "platform". Throws
-// when the connection is missing: a half-configured app fails closed.
-export function appAccess(): AppAccessClient {
-  client ??= fromEnv("PLATFORM", {
-    application: process.env.APP_ACCESS_APPLICATION?.trim() ?? "",
-  });
-  return client;
-}
-
-// Permissions of the signed-in user for the current request, for Server
-// Actions and Server Components.
-export async function currentAccess(): Promise<AppAccess> {
-  return appAccess().getAppAccess(await headers());
-}
+const user = await requireUser(); // always requires app:use
+user.principal;                  // signed durable person key (u_…)
+user.groupGrants;                // signed per-app groups and their permissions
+user.can("access:manage");        // signed permission check
+user.displayName;                // undefined: platform does not deliver names yet
 ```
 
-Check a permission on the server before every protected read or write; hiding
-a button is not authorization. For example, to let only editors save messages
-in `app/actions.ts`:
+It calls `getAppAccess(await headers())` directly. Version 0.3.1 supports the
+real Next.js `HeadersAdapter`; no adapter workaround is needed. Missing
+configuration throws `Unavailable`, missing/invalid credentials throw
+`Unauthenticated`, insufficient signed permissions throw `Forbidden`.
+Unverifiable identity never falls back. Missing names and empty group grants
+are valid for an otherwise permitted person.
 
-```ts
-import { currentAccess } from "@/lib/app-access";
+`proxy.ts` matches **every route**, including newly added pages, Route Handlers
+and Server Action POSTs. Only GET/HEAD for `/healthz`, `/favicon.ico`,
+`/_next/static/*` and `/_next/image` bypass the guard. The explicit allowlist
+lives in `lib/public-routes.ts`; any new public page needs an exact path and a
+stated reason. Do not rewrite public exceptions into protected routes. Static
+assets and optimized images must contain only public data, never secrets.
 
-export async function createMessage(formData: FormData) {
-  // Throws Unauthenticated (not signed in), Forbidden (not permitted) or
-  // Unavailable (platform unreachable); nothing below runs.
-  (await currentAccess()).require("messages:write");
-  // ...save the message
-}
+The proxy returns fixed bilingual 401/403/503 pages with `Cache-Control:
+no-store`, no identity details and no exception messages. Only deliberate
+access-unavailable 503 responses carry `x-appthrust-access: unavailable`.
+
+Also call `requireUser` before each protected read/write inside pages, Route
+Handlers and actions; the guard is not a substitute for operation/row checks.
+The starter page displays a truncated principal and group-grant count.
+`app/actions.ts` stores `user.principal` and `user.displayName ?? null`, never
+an author sent by the browser. Names/emails are labels, not keys; row ownership
+must compare the complete signed principal, not its truncated display.
+
+## Build, deploy and checks
+
+Both `.github/workflows/deploy.yml` and the platform-generated deploy workflow
+(platform PR #7417) pass `node_auth_token=GITHUB_TOKEN` to the Docker build.
+The generated workflow grants `packages: read`; this template workflow grants
+`packages: write` because it also publishes the image. GitHub Packages must
+allow the generated repository's Actions token to read `@appthrust/app-access`.
+
+The Dockerfile copies the committed `.npmrc` (not excluded by `.dockerignore`)
+and requires the BuildKit secret only for `npm ci`. Never put a token in a
+Docker ARG, ENV, source file or image layer. No platform connection or database
+is needed to build.
+
+```bash
+npm run typecheck
+npm test
+npm run test:smoke
 ```
 
-A Route Handler passes its `Request` and maps those errors to 401 / 403 / 503
-with `toResponse`:
+These gates run before image publication. Unit tests exercise the real helper,
+real HeadersAdapter and SDK with signed fixtures, including forged-header
+rejection, default-deny routes and author persistence.
 
-```ts
-import { toResponse } from "@appthrust/app-access";
-import { appAccess } from "@/lib/app-access";
+The smoke unsets `PLATFORM_*`, `APP_ACCESS_*`, `APTH_*` and `DATABASE_URL`,
+builds and starts the standalone server, then requires `/healthz` = 200.
+`/` must be 200/3xx/401/403, or **503 with
+`x-appthrust-access: unavailable`**. An unmarked 503, any 500/502/504 or
+connection failure fails CI. Keep local `.env*` configuration out of this
+check. Port 3000 is the default; set `SMOKE_PORT` to an unused local port.
+Startup/requests are bounded and the server is stopped on success or failure.
 
-export async function GET(request: Request) {
-  try {
-    const access = await appAccess().getAppAccess(request);
-    access.require("messages:read");
-    return Response.json({ canWrite: access.has("messages:write") });
-  } catch (error) {
-    return toResponse(error);
-  }
-}
-```
-
-### 4. Turn it on in AppThrust
-
-1. In the Dashboard, open the Application's **Access** tab, define the item
-   types and roles, and assign roles to groups or people.
-2. For an endpoint intended for `company` sharing, require sign-in and add a
-   platform connection to the web component. Do not switch a `group` or
-   `private` publish to this mode:
-
-   ```bash
-   apth publishes access set <project> <publish> --mode Authenticated
-   apth component-connections create <project> <web component> --destination-platform --name platform
-   ```
-
-3. Set `APP_ACCESS_APPLICATION` to the Application resource name:
-
-   ```bash
-   apth apps env set <application> APP_ACCESS_APPLICATION=<application>
-   ```
-
-Permission names such as `messages:write` are the ones the Access tab shows
-for each item type and level. Role changes reach the app within about a
-minute; the first activation can take up to five minutes for users who were
-already signed in. See the
-[`@appthrust/app-access` README](https://github.com/appthrust/platform/tree/main/dashboard/packages/app-access)
-for errors and caching.
+Platform startup, liveness and readiness probes use `/healthz`, never `/`.
+Its constant `ok` response proves process health, not authorization or database
+readiness. After per-app setup, sign in through the real publish and save one
+message to prove the runtime/author path; offline smoke alone does not prove it.

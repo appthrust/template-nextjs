@@ -1,9 +1,11 @@
 import { createMessage } from "./actions";
 import { loadDemoMessages } from "@/lib/db";
+import { requireUser } from "@/lib/app-access";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  const user = await requireUser();
   const database = await loadDemoMessages();
   const runtimeVersion =
     process.env.VERSION?.trim() ||
@@ -25,6 +27,12 @@ export default async function Home() {
           <StatusBadge status={database.status} />
         </header>
 
+        <section aria-label="Signed-in person" className="text-sm text-slate-700">
+          <p>Principal: <code>{user.principal.slice(0, 12)}…</code></p>
+          <p>Group grants: {user.groupGrants.length}</p>
+          <p>{user.displayName ?? "Name unavailable / 名前はまだ届いていません"}</p>
+        </section>
+
         <section className="grid gap-4 md:grid-cols-3">
           <Metric label="Connection" value={databaseStatusLabel(database.status)} />
           <Metric label="Database" value={database.databaseName ?? "unavailable"} />
@@ -43,6 +51,7 @@ export default async function Home() {
                     <p className="text-sm text-slate-950">{message.body}</p>
                     <p className="mt-1 font-mono text-xs text-slate-500">
                       #{message.id} · {message.createdAt}
+                      {" · "}{message.authorDisplayName ?? "Name unavailable"}
                     </p>
                   </article>
                 ))
@@ -168,7 +177,7 @@ function databaseStatusLabel(status: string) {
 function emptyStateMessage(status: string) {
   switch (status) {
     case "migration-pending":
-      return "The database is reachable, but the initial schema has not been applied yet.";
+      return "The database is reachable, but the schema migrations have not all been applied yet.";
     case "missing-url":
       return "DATABASE_URL is not configured for this runtime.";
     case "unavailable":

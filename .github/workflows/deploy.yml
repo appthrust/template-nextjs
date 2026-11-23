@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
         env:
-          # Used only when an app opts into GitHub Packages via .npmrc.
+          # The committed .npmrc uses this only to install GitHub Packages.
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Typecheck
@@ -85,11 +85,9 @@ jobs:
           annotations: ${{ steps.meta.outputs.annotations }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Only for apps that install @appthrust packages from GitHub Packages
-          # (see "App roles" in README.md): uncomment to pass the workflow token
-          # to `npm ci` as a build secret. It is not stored in the image.
-          # secrets: |
-          #   node_auth_token=${{ secrets.GITHUB_TOKEN }}
+          # Available only during the Dockerfile's dependency-install step.
+          secrets: |
+            node_auth_token=${{ secrets.GITHUB_TOKEN }}
           # appthrust.dev runtimes are linux/amd64. Adding linux/arm64 here builds
           # under QEMU emulation and multiplied build time (166s -> 39s measured on
           # a Next.js app after removing it). For an arm64 runtime, build natively

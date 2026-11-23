@@ -1,0 +1,34 @@
+{
+  "permissions": [
+    {
+      "name": "app:use",
+      "description": "Use this application / アプリを利用する"
+    },
+    {
+      "name": "access:manage",
+      "description": "Manage app access / アプリの共有を管理する"
+    }
+  ],
+  "roles": [
+    {
+      "name": "app-user",
+      "permissions": [
+        "app:use"
+      ]
+    },
+    {
+      "name": "access-manager",
+      "permissions": [
+        "access:manage"
+      ]
+    }
+  ],
+  "defaultBindings": [
+    {
+      "role": "app-user",
+      "subject": {
+        "kind": "Authenticated"
+      }
+    }
+  ]
+}

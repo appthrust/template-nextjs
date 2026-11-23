@@ -8,10 +8,11 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --test __tests__/*.test.mjs",
+    "test": "node --experimental-test-module-mocks --test __tests__/*.test.mjs",
     "test:smoke": "bash scripts/smoke.sh"
   },
   "dependencies": {
+    "@appthrust/app-access": "^0.3.1",
     "next": "16.2.6",
     "pg": "^8.16.3",
     "react": "19.2.4",
