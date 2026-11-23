@@ -33,6 +33,21 @@ signature checks. No identity fixture ships with this template.
 
 For this template, startup, liveness and readiness probe `GET /healthz`. Keep its `ok` response independent of the database and sign-in. The AI development preview checks `/` separately; neither check proves authorization.
 
+## CI checks
+
+Before building or pushing an image, `.github/workflows/deploy.yml` runs
+`npm run typecheck`, `npm test` (Node.js's built-in test runner), and
+`npm run test:smoke`. The smoke builds with `next build`, starts the standalone
+server, and requires `/healthz` to return 200 and `/` to return a non-5xx HTTP
+status (including 200, redirects, or 401). It unsets `PLATFORM_*`,
+`APP_ACCESS_*`, `APTH_*`, and `DATABASE_URL` for both build and startup; do not
+provide platform configuration through local `.env` files for this check.
+It uses port 3000 by default; set `SMOKE_PORT` to an unused port locally.
+Startup and requests are bounded, and the server is stopped on success or
+failure. A failed check fails the workflow, reports the failure in the job
+summary, and prevents image publication, leaving the previous image unchanged.
+
+
 ## Signed-in person
 
 Platform authenticates; the app decides who may use it and what they may do.
@@ -50,7 +65,7 @@ On `group` and `private` publishes, external authorization strips both
 feature cannot get a verified person, leave it closed and report what is
 missing. Do not widen sharing, add a login screen or invent a fallback user.
 
-The published `@appthrust/app-access` 0.2.0 client is not a template dependency.
+The optional `@appthrust/app-access` client is not a template dependency.
 Its `require` and `has` permission checks work today. The exchange already
 signs a `principal` (`u_…`), but `getAppAccess` does not expose it. Until it
 does, leave author-recording writes closed and report the missing helper
@@ -97,21 +112,30 @@ Create `.npmrc` (it holds a variable reference; never commit a token):
 //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
+Use `@appthrust/app-access@^0.3.1`: 0.3.0 crashed on `await headers()` because Next.js's real headers adapter has an internal `headers` object.
+
 Install with a token that has `read:packages`:
 
 ```bash
 gh auth refresh --scopes read:packages   # once
-NODE_AUTH_TOKEN=$(gh auth token) npm install --save-exact @appthrust/app-access
+NODE_AUTH_TOKEN=$(gh auth token) npm install '@appthrust/app-access@^0.3.1'
 ```
 
 From now on `npm ci` needs `NODE_AUTH_TOKEN` too. `npm run dev`, `lint` and
 `build` do not.
 
+Never mock `next/headers` with a plain `Headers` in tests; use Next.js's real
+`HeadersAdapter` or pass a real `Request` to the access helper.
+After adding app-access, replace the stub-route test in
+`__tests__/headers-adapter.test.mjs` with a real
+`getAppAccess(await headers())` call through the app's access helper.
+
 ### 2. Let the image build install it
 
 In `.github/workflows/deploy.yml`, uncomment the `secrets:` lines of the
 "Build and push Docker images" step. The `Dockerfile` already reads that build
-secret.
+secret. The earlier CI dependency-install step already supplies `GITHUB_TOKEN`
+as `NODE_AUTH_TOKEN` for `.npmrc`; apps without the helper need no package token.
 
 ### 3. Add the server code
 
